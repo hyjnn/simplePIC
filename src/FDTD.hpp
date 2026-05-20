@@ -1,7 +1,7 @@
 #pragma once
 #include <array>
 #include <cmath>
-#include <iostream>
+#include <string>
 #include <vector>
 
 #include "MDVector.hpp"
@@ -14,8 +14,9 @@ namespace FDTD {
         std::array<std::size_t, 3> shape;
         floatType space_step = 1;
         floatType step_ratio = 1/std::sqrt(3.0L); // time_step / space_step
-        floatType time = 0;
-        //Array storing the Ex, Ey, Ez, Hx, Hy, Hz fields in this order.
+        floatType time = 0; // Time at which the E field is known, the H field is known half a time step forward.
+        // Array storing the Ex, Ey, Ez, Hx, Hy, Hz fields in this order.
+        // IMPORTANT: Due to the Yee grid's structure, certain edge elements of the fields lie outside of the simulation region!
         std::array<MDVector<floatType, 3>, 6> fields;
         MDVector<floatType, 3> permittivity; // Relative permittivity
 
@@ -28,27 +29,35 @@ namespace FDTD {
     public:
         FieldSolver(std::array<std::size_t, 3>); //Constructs a FieldSolver object with specified shape.
 
-        const std::array<MDVector<floatType, 3>, 6> &getFields() const;
         std::array<MDVector<floatType, 3>, 6> &getFields();
-        const MDVector<floatType, 3> &getPermittivity() const;
         MDVector<floatType, 3> &getPermittivity();
         floatType getSpaceStep();
         floatType setSpaceStep(floatType);
         floatType getStepRatio();
         floatType setStepRatio(floatType);
 
-        void updateFields();
+        void solve(unsigned long long);
 
-        void fieldsToStream(std::ostream&);
+        void exportToFile(std::string);
     };
 
+    // Applies func to all EM fields' components at all yee grid points, starting with the E field.
     template<typename T>
     void FieldSolver::forAllFields(T(FieldSolver::*func)(std::size_t, std::size_t, std::size_t, std::size_t)) {
         for (std::size_t n = 0; n < 6; n++) {
-            for (std::size_t i = 0; i < shape[0]; i++) {
-                for (std::size_t j = 0; j < shape[1]; j++) {
-                    for (std::size_t k = 0; k < shape[2]; k++) {
-                        func(n, i, j, k);
+            std::array<int, 3> skip; // because of the spacial staggering on a Yee grid, we need to ignore some of the elements in fields (they lie outside the sim region)
+            if (n < 3) {
+                skip = { 0, 0, 0 };
+                skip[n] = 1;
+            }
+            else {
+                skip = { 1, 1, 1 };
+                skip[n-3] = 0;
+            }
+            for (std::size_t i = 0; i < shape[0] - skip[0]; i++) {
+                for (std::size_t j = 0; j < shape[1] - skip[1]; j++) {
+                    for (std::size_t k = 0; k < shape[2] - skip[2]; k++) {
+                        (this->*func)(n, i, j, k);
                     }
                 }
             }
