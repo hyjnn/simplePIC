@@ -12,15 +12,15 @@ namespace FDTD {
         floatType test;
         switch (n) {
             case 0:
-                if (j == 0 || j == shape[1]) return;
+                if (j == 0 || j == shape[1] - 1) return;
                 fields[0][i, j] += step_ratio/permittivity[i, j]*(fields[5][i, j] - fields[5][i, j-1]);
                 return;
             case 1:
-                if (i == 0 || i == shape[0]) return;
+                if (i == 0 || i == shape[0] - 1) return;
                 fields[1][i, j] += step_ratio/permittivity[i, j]*(-fields[5][i, j] + fields[5][i-1, j]);
                 return;
             case 2:
-                if (i == 0 || i == shape[0] || j == 0 || j == shape[1]) return;
+                if (i == 0 || j == 0 || i == shape[0] - 1 || j == shape[1] - 1) return;
                 fields[2][i, j] += step_ratio/permittivity[i, j]*(-fields[3][i, j] + fields[3][i, j-1] + fields[4][i, j] - fields[4][i-1, j]);
                 return;
             case 3:

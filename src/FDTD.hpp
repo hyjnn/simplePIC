@@ -8,15 +8,15 @@
 
 namespace FDTD {
     using floatType = float; //float type used in calculations
-    floatType c = 299792458;
-    floatType eps0 = 8.8541878188141414141e-12;
-    floatType mu0 = 1.25663706127202020202e-6;
+    inline floatType c = 299792458;
+    inline floatType eps0 = 8.8541878188141414141e-12;
+    inline floatType mu0 = 1.25663706127202020202e-6;
 
     class FieldSolver {
         //Dimensions of the simulation region.
         std::array<std::size_t, 2> shape;
         floatType space_step = 1;
-        floatType step_ratio = 1./(c*20.); // time_step / space_step
+        floatType step_ratio = 1./(c*std::sqrt(2.)); // time_step / space_step
         floatType time = 0; // Time at which the E field is known, the H field is known half a time step forward.
         // Array storing the Ex, Ey, Ez, Hx, Hy, Hz fields in this order.
         // IMPORTANT: Due to the Yee grid's structure, certain edge elements of the fields lie outside of the simulation region!
