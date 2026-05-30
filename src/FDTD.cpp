@@ -7,21 +7,24 @@
 #include "MDVector.hpp"
 #include "FDTD.hpp"
 
-namespace FDTD {
+namespace PIC {
+
+    //-----FieldSolver definitions-----
+
     void FieldSolver::compUpdatePEC(std::size_t n, std::size_t i, std::size_t j) {
         floatType test;
         switch (n) {
             case 0:
                 if (j == 0 || j == shape[1] - 1) return;
-                fields[0][i, j] += step_ratio/permittivity[i, j]*(fields[5][i, j] - fields[5][i, j-1]);
+                fields[0][i, j] += step_ratio/permittivity[i, j]*(fields[5][i, j] - fields[5][i, j-1] - space_step * current[0][i, j]);
                 return;
             case 1:
                 if (i == 0 || i == shape[0] - 1) return;
-                fields[1][i, j] += step_ratio/permittivity[i, j]*(-fields[5][i, j] + fields[5][i-1, j]);
+                fields[1][i, j] += step_ratio/permittivity[i, j]*(-fields[5][i, j] + fields[5][i-1, j] - space_step * current[1][i, j]);
                 return;
             case 2:
                 if (i == 0 || j == 0 || i == shape[0] - 1 || j == shape[1] - 1) return;
-                fields[2][i, j] += step_ratio/permittivity[i, j]*(-fields[3][i, j] + fields[3][i, j-1] + fields[4][i, j] - fields[4][i-1, j]);
+                fields[2][i, j] += step_ratio/permittivity[i, j]*(-fields[3][i, j] + fields[3][i, j-1] + fields[4][i, j] - fields[4][i-1, j] - space_step * current[2][i, j]);
                 return;
             case 3:
                 fields[3][i, j] += step_ratio/mu0*(-fields[2][i, j+1] + fields[2][i, j]);
@@ -35,8 +38,9 @@ namespace FDTD {
         }
     }
 
-    FieldSolver::FieldSolver(std::array<std::size_t, 2> shape) : shape(shape), permittivity(MDVector<floatType, 2>(shape, 1*eps0)) {
+    FieldSolver::FieldSolver(std::array<std::size_t, 2> shape) : shape(shape), permittivity(shape, 1*eps0) {
         fields.fill(MDVector<floatType, 2>(shape));
+        current.fill(MDVector<floatType, 2>(shape));
     }
     std::array<MDVector<floatType, 2>, 6> &FieldSolver::getFields() {
         return fields;
@@ -83,6 +87,25 @@ namespace FDTD {
 
                     outfile << line;
             }
+        }
+    }
+
+    //-----ParticleMover definitions-----
+
+    ParticleMover::ParticleMover(const std::size_t particle_count) : positions({ particle_count, 2 }), velocities({ particle_count, 2 }), charges({ particle_count }) {}
+
+    MDVector<floatType, 2> &ParticleMover::getPositions() {
+        return positions;
+    }
+    MDVector<floatType, 2> &ParticleMover::getVelocities() {
+        return velocities;
+    }
+    MDVector<floatType, 1> &ParticleMover::getCharges() {
+        return charges;
+    }
+    void ParticleMover::move(const std::array<MDVector<floatType, 2>, 6>) {
+        for (std::size_t i = 0; i < charges.shape[0]; i++) {
+            
         }
     }
 }

@@ -6,7 +6,7 @@
 
 #include "MDVector.hpp"
 
-namespace FDTD {
+namespace PIC {
     using floatType = float; //float type used in calculations
     inline floatType c = 299792458;
     inline floatType eps0 = 8.8541878188141414141e-12;
@@ -22,6 +22,7 @@ namespace FDTD {
         // IMPORTANT: Due to the Yee grid's structure, certain edge elements of the fields lie outside of the simulation region!
         std::array<MDVector<floatType, 2>, 6> fields;
         MDVector<floatType, 2> permittivity; // Absolute permittivity
+        std::array<MDVector<floatType, 2>, 3> current;
 
         //Hides scary loop behind function (i.e. calls func for every element in every element in fields)
         template<typename T>
@@ -42,6 +43,21 @@ namespace FDTD {
         void solve(unsigned long long);
 
         void exportToFile(std::string);
+    };
+
+    class ParticleMover {
+        MDVector<floatType, 2> positions, velocities;
+        MDVector<floatType, 1> charges;
+
+    public:
+        ParticleMover() = default;
+        ParticleMover(const std::size_t); // Creates object with specified particle count.
+
+        MDVector<floatType, 2>& getPositions();
+        MDVector<floatType, 2>& getVelocities();
+        MDVector<floatType, 1>& getCharges();
+
+        void move(const std::array<MDVector<floatType, 2>, 6>); // Move particles in accordance to the supplied fields.
     };
 
     // Applies func to all EM fields' components at all yee grid points, starting with the E field.
