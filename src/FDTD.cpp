@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <exception>
 #include <iostream>
@@ -58,7 +59,6 @@ namespace PIC {
     floatType FieldSolver::getStepRatio() {
         return step_ratio;
     }
-
     floatType FieldSolver::setStepRatio(floatType new_value) {
         step_ratio = new_value;
         return step_ratio;
@@ -103,8 +103,48 @@ namespace PIC {
     MDVector<floatType, 1> &ParticleMover::getCharges() {
         return charges;
     }
-    void ParticleMover::move(const std::array<MDVector<floatType, 2>, 6>) {
+    MDVector<floatType, 1> &ParticleMover::getMasses() {
+        return masses;
+    }
+    const std::size_t &ParticleMover::getParticleCount() {
+        return particle_count;
+    }
+
+    void ParticleMover::move(const MDVector<floatType, 2> &fields)
+    {
+        MDVector<floatType, 1> u_minus({ 2 }), u_prime({ 2 }), u_plus({ 2 });
+        floatType A; // helper variable
+
         for (std::size_t i = 0; i < charges.shape[0]; i++) {
+            // Update velocities
+            A = time_step * charges[i] / 2 * masses[i];
+
+            u_minus[0] = velocities[i, 0] + A * fields[0, i];
+            u_minus[1] = velocities[i, 1] + A * fields[1, i];
+
+            A *= fields[5, i];
+            
+            u_prime[0] = u_minus[0] + A * u_minus[1];
+            u_prime[1] = u_minus[1] - A * u_minus[0];
+
+            u_plus[0] = u_minus[0] + 2 * A * u_prime[1] / (1 + A*A);
+            u_plus[0] = u_minus[0] - 2 * A * u_prime[0] / (1 + A*A);
+
+            velocities[i, 0] = u_plus[0] + A * fields[0, i];
+            velocities[i, 1] = u_plus[1] + A * fields[1, i];
+
+            // Update positions
+            positions[i, 0] += velocities[i, 0] * time_step;
+            positions[i, 1] += velocities[i, 1] * time_step;
+        }
+    }
+
+    //-----SimEngine definitions-----
+
+    MDVector<floatType, 2> SimEngine::fieldGather() {
+        MDVector<floatType, 2> result({ particle_sim.getParticleCount(), 2 });
+
+        for (std::size_t i = 0; i < particle_sim.getParticleCount(); i++) {
             
         }
     }

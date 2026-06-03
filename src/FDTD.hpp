@@ -1,3 +1,16 @@
+/*
+    !!! WARNING !!!
+    For testing purposes I decicded to make this 2D only for the time being.
+    In order for this to make sense with particles inside the sim region,
+    we have to only consider the Ex Ey Hz polarization!!
+
+    Things to improve:
+    FieldSolever shape is not being updated when changed with getFields, this should be redesigned. (e.g. by adding a resize and setters, not allowing the setters to change shape implicitly, or not allowing resizing at all)
+    Stop mixing std::array with MDVector (I don't know why I did this)
+    FieldSolver stores currents as a member, meanwhile ParticleMover expects field as an argument to move.
+    Make the linalg in ParticleMover::move prettier
+*/
+
 #pragma once
 #include <array>
 #include <cmath>
@@ -31,9 +44,9 @@ namespace PIC {
         void compUpdatePEC(std::size_t, std::size_t, std::size_t);
         
     public:
-        FieldSolver(std::array<std::size_t, 2>); //Constructs a FieldSolver object with specified shape.
+        FieldSolver(std::array<std::size_t, 2>); // Constructs a FieldSolver object with specified shape.
 
-        std::array<MDVector<floatType, 2>, 6> &getFields();
+        std::array<MDVector<floatType, 2>, 6> &getFields(); // Currently, changing the shape of fields with this WILL BREAK THE PROGRAM. TO BE CORRECTED!!!!
         MDVector<floatType, 2> &getPermittivity();
         floatType getSpaceStep();
         floatType setSpaceStep(floatType);
@@ -47,7 +60,9 @@ namespace PIC {
 
     class ParticleMover {
         MDVector<floatType, 2> positions, velocities;
-        MDVector<floatType, 1> charges;
+        MDVector<floatType, 1> charges, masses;
+        std::size_t particle_count;
+        floatType time_step;
 
     public:
         ParticleMover() = default;
@@ -56,8 +71,25 @@ namespace PIC {
         MDVector<floatType, 2>& getPositions();
         MDVector<floatType, 2>& getVelocities();
         MDVector<floatType, 1>& getCharges();
+        MDVector<floatType, 1>& getMasses();
+        const std::size_t &getParticleCount();
 
-        void move(const std::array<MDVector<floatType, 2>, 6>); // Move particles in accordance to the supplied fields.
+        void move(const MDVector<floatType, 2>&); // Move particles in accordance to the supplied fields.
+    };
+
+    class SimEngine {
+        FieldSolver field_sim;
+        ParticleMover particle_sim;
+        floatType time = 0;
+
+        void depositCurrent(); // Updates the current distribution in field_sim.
+        MDVector<floatType, 2> fieldGather(); // Calculates and returns fields at current particle locations.
+
+    public:
+        SimEngine() = default;
+        SimEngine(std::array<std::size_t, 2>, std::size_t); // Contructs Yee simulation region with given shape and a Boris particle mover with given number of particles.
+
+        void run(std::size_t);
     };
 
     // Applies func to all EM fields' components at all yee grid points, starting with the E field.
@@ -66,11 +98,11 @@ namespace PIC {
         for (std::size_t n = 0; n < 6; n++) {
             std::array<int, 3> skip; // because of the spacial staggering on a Yee grid, we need to ignore some of the elements in fields (they lie outside the sim region)
             if (n < 3) {
-                skip = { 0, 0, 0};
+                skip = { 0, 0, 0 };
                 skip[n] = 1;
             }
             else {
-                skip = { 1, 1, 1};
+                skip = { 1, 1, 1 };
                 skip[n-3] = 0;
             }
             for (std::size_t i = 0; i < shape[0] - skip[0]; i++) {
