@@ -17,9 +17,9 @@ int main() {
 
     PIC::floatType phase, Ey0, Hz0;
     for (std::size_t i = 0; i < 400; i++) {
-        phase = std::numbers::pi * i * step / length;
-        Ey0 = -PIC::c*PIC::mu0*std::sin(phase);
-        Hz0 = std::cos(phase)*std::cos(frequency * time_step);
+        phase = std::numbers::pi * i * step/length;
+        Ey0 = -PIC::c * PIC::mu0 * std::sin(phase);
+        Hz0 = std::cos(phase) * std::cos(frequency*time_step);
         for (std::size_t j = 0; j < 400; j++) {
             fields[1][i, j] = Ey0;
             fields[5][i, j] = Hz0;

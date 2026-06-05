@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <exception>
 #include <iostream>
 #include <format>
@@ -46,7 +47,11 @@ namespace PIC {
     std::array<MDVector<floatType, 2>, 6> &FieldSolver::getFields() {
         return fields;
     }
-    MDVector<floatType, 2> &FieldSolver::getPermittivity() {
+    std::array<MDVector<floatType, 2>, 3> &FieldSolver::getCurrent() {
+        return current;
+    }
+    MDVector<floatType, 2> &FieldSolver::getPermittivity()
+    {
         return permittivity;
     }
     floatType FieldSolver::getSpaceStep() {
@@ -62,6 +67,9 @@ namespace PIC {
     floatType FieldSolver::setStepRatio(floatType new_value) {
         step_ratio = new_value;
         return step_ratio;
+    }
+    const std::array<std::size_t, 2> &FieldSolver::getShape() const {
+        return shape;
     }
 
     void FieldSolver::solve(unsigned long long n_steps) {
@@ -141,11 +149,113 @@ namespace PIC {
 
     //-----SimEngine definitions-----
 
-    MDVector<floatType, 2> SimEngine::fieldGather() {
-        MDVector<floatType, 2> result({ particle_sim.getParticleCount(), 2 });
+    std::array<floatType, 2> SimEngine::physToIndex(std::array<floatType, 2> point, std::size_t field_comp) {
+        static const struct { floatType x, y; } offsets[6] = { // Lookup table for translating physical to index-like coordinates
+            { .5, .0 },
+            { .0, .5 },
+            { .0, .0 },
+            { .0, .5 },
+            { .5, .0 },
+            { .5, .5 },
+        };
 
-        for (std::size_t i = 0; i < particle_sim.getParticleCount(); i++) {
+        floatType i = point[0] / field_sim.getSpaceStep() - offsets[field_comp].x;
+        floatType j = point[1] / field_sim.getSpaceStep() - offsets[field_comp].y;
+
+        return { i, j };
+    }
+
+    floatType SimEngine::gatherComponent(std::size_t field_comp, std::size_t particle_num)
+    {
+        floatType x = particle_sim.getPositions()[particle_num, 0], y = particle_sim.getPositions()[particle_num, 1]; // Physical coordinates of chosen particle
+        const auto &fields_all = field_sim.getFields();
+
+        auto [i, j] = physToIndex({ x, y }, field_comp);
+
+        std::size_t imin = std::floor(i), imax = std::ceil(i), jmin = std::floor(j), jmax = std::ceil(j);
+        if (i < 0) imin = 0; // It's possible for these to be negative for some of the components.
+        if (j < 0) jmin = 0; // The calculation itself doesn't need them in those cases, but we have to prevent a segfault nonetheless.
+        // They can exceed the max physical boundary as well, but in this case the padding due to the staggering of the Yee grid saves us.
+
+        MDVector<floatType, 2> fields; // Fields to be splined.
+        if (field_comp > 3) {
+            fields[0, 0] = fields_all[field_comp][imin, jmin];
+            fields[1, 0] = fields_all[field_comp][imax, jmin];
+            fields[0, 1] = fields_all[field_comp][imin, jmax];
+            fields[1, 1] = fields_all[field_comp][imax, jmax];
+        }
+        else { // Time averaging for H
+            fields[0, 0] = .5 * (fields_all[field_comp][imin, jmin] + prev_fields[field_comp][imin, jmin]);
+            fields[1, 0] = .5 * (fields_all[field_comp][imax, jmin] + prev_fields[field_comp][imax, jmin]);
+            fields[0, 1] = .5 * (fields_all[field_comp][imin, jmax] + prev_fields[field_comp][imin, jmax]);
+            fields[1, 1] = .5 * (fields_all[field_comp][imax, jmax] + prev_fields[field_comp][imax, jmax]);
+        }
+
+        std::size_t inearest = i - imin < imax - i ? 0 : 1;
+        std::size_t jnearest = j - jmin < jmax - j ? 0 : 1;
+        i -= imin; // i and j switch to just their fractional parts
+        j -= jmin;
+
+        switch (field_comp) { // Splining logic as described in Vay's paper for spline order n=1, energy conserving.
+            case 0:
+                [[fallthrough]];
+            case 4:
+                return (1 - j) * fields[inearest, jmin] + j * fields[inearest, jmax];
+
+            case 1:
+                [[fallthrough]];
+            case 3:
+                return (1 - i) * fields[imin, jnearest] + i * fields[imax, jnearest];
+
+            case 2:
+                floatType result = 0;
+                result += (1 - j) * ((1 - i) * fields[imin, jmin] + i * fields[imax, jmin]);
+                result += j * ((1 - i) * fields[imin, jmax] + i * fields[imax, jmax]);
+                return result;
             
+            case 5:
+                return fields[inearest, jnearest];
+        }
+    }
+
+    MDVector<floatType, 2> SimEngine::fieldGather() {
+        MDVector<floatType, 2> result({ particle_sim.getParticleCount(), 6 });
+
+        for (std::size_t particle_num = 0; particle_num < particle_sim.getParticleCount(); particle_num++) {
+            for (std::size_t field_comp = 0; field_comp < 6; field_comp++) {
+                result[particle_num, field_comp] = gatherComponent(particle_num, field_comp);
+            }
+        }
+
+        return result;
+    }
+
+    void SimEngine::depositCurrent() {
+        auto &currents = field_sim.getCurrent();
+        const auto &positions = particle_sim.getPositions();
+        const auto &velocities = particle_sim.getVelocities();
+        const auto &charges = particle_sim.getCharges();
+        const auto &step = field_sim.getSpaceStep();
+
+        for (std::size_t particle_num = 0; particle_num < particle_sim.getParticleCount(); particle_num++) {
+            for (std::size_t field_comp = 0; field_comp < 3; field_comp++) {
+                floatType x = .5 * (positions[particle_num, 0] + prev_positions[particle_num, 0]);
+                floatType y = .5 * (positions[particle_num, 1] + prev_positions[particle_num, 1]);
+                auto [i, j] = physToIndex({ x, y }, field_comp);
+
+                std::size_t imin = std::floor(i), imax = std::ceil(i), jmin = std::floor(j), jmax = std::ceil(j);
+
+                if (i > 0) {
+                    currents[field_comp][imin, jmax] = (1 - i) * j * charges[particle_num] * velocities[particle_num, field_comp] / step / step / step;
+                }
+                if (j > 0) {
+                    currents[field_comp][imax, jmin] = i * (1 - j) * charges[particle_num] * velocities[particle_num, field_comp] / step / step / step;
+                }
+                if (i > 0 && j > 0) {
+                    currents[field_comp][imin, jmin] = (1 - i) * (1 - j) * charges[particle_num] * velocities[particle_num, field_comp] / step / step / step;
+                }
+                currents[field_comp][imax, jmax] = i * j * charges[particle_num] * velocities[particle_num, field_comp] / step / step / step;
+            }
         }
     }
 }

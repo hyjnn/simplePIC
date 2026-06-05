@@ -41,17 +41,19 @@ namespace PIC {
         template<typename T>
         void forAllFields(T(FieldSolver::*func)(std::size_t, std::size_t, std::size_t));
         //Updates n-th EM field component at index (i, j, k).
-        void compUpdatePEC(std::size_t, std::size_t, std::size_t);
+        void compUpdatePEC(std::size_t n, std::size_t i, std::size_t j);
         
     public:
         FieldSolver(std::array<std::size_t, 2>); // Constructs a FieldSolver object with specified shape.
 
         std::array<MDVector<floatType, 2>, 6> &getFields(); // Currently, changing the shape of fields with this WILL BREAK THE PROGRAM. TO BE CORRECTED!!!!
+        std::array<MDVector<floatType, 2>, 3> &getCurrent();
         MDVector<floatType, 2> &getPermittivity();
         floatType getSpaceStep();
         floatType setSpaceStep(floatType);
         floatType getStepRatio();
         floatType setStepRatio(floatType);
+        const std::array<std::size_t, 2> &getShape() const;
 
         void solve(unsigned long long);
 
@@ -78,12 +80,26 @@ namespace PIC {
     };
 
     class SimEngine {
+        /*
+            This class mixes two coordinate systems - the physical coordinates, which are used by ParticleMover to store the particle coordinates,
+            and index-like coordinates, which are really a set of 6 different systems, corresponding to the 6 field components. These come from treating
+            the indices of the points on which the given field is known as their coordinates, and extending this linearly to the entire simulation
+            region. So, the index-like coordinates are rescaled and shifted physical coordinates.
+        */
+
         FieldSolver field_sim;
         ParticleMover particle_sim;
         floatType time = 0;
 
+        std::array<MDVector<floatType, 2>, 6> prev_fields;
+        MDVector<floatType, 2> prev_positions;
+
+        std::array<floatType, 2> physToIndex(std::array<floatType, 2> point, std::size_t field_comp); // Convert point to index-like coordinates for specified field component.
+
+        floatType gatherComponent(std::size_t field_comp, std::size_t particle_num); // Gathers specified field component onto specified index-like point.
+        MDVector<floatType, 2> fieldGather(); // Calculates and returns fields at current particle locations according to the energy conserving scheme as described in Vay.
+        
         void depositCurrent(); // Updates the current distribution in field_sim.
-        MDVector<floatType, 2> fieldGather(); // Calculates and returns fields at current particle locations.
 
     public:
         SimEngine() = default;
