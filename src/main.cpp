@@ -6,9 +6,7 @@
 #include "FDTD.hpp"
 #include "MDVector.hpp"
 
-int main() {
-    PIC::FieldSolver sim(std::array<std::size_t, 2>{ 400, 400 });
-
+void fundamentalMode(PIC::FieldSolver &sim) { // Shape is hardcoded to 400 cause I'm lazy and this is just for testing
     auto step = sim.getSpaceStep();
     auto time_step = step * sim.getStepRatio();
     auto length = step * (400 - 1);
@@ -25,10 +23,26 @@ int main() {
             fields[5][i, j] = Hz0;
         }
     }
+}
 
-    sim.exportToFile(std::format("data{}.txt", 0));
+int main() {
+    PIC::SimEngine sim({ 400, 400 }, 1 );
+    auto &field_sim = sim.getFieldSim();
+    auto &particle_sim = sim.getParticleSim();
+    auto &positions = particle_sim.getPositions();
+    fundamentalMode(field_sim);
+    positions[0, 0] = 200 * field_sim.getSpaceStep();
+    positions[0, 1] = 200 * field_sim.getSpaceStep();
+    particle_sim.getMasses()[0] = 1e6;
+    particle_sim.getCharges()[0] = 1e-6;
+    sim.trackParticle(0);
+
+    sim.move_particles();
+
+    field_sim.exportToFile(std::format("field_data{}.txt", 0));
     for (int i = 1; i < 5; i++) {
-        sim.solve(20);
-        sim.exportToFile(std::format("data{}.txt", i));
+        sim.run(20);
+        field_sim.exportToFile(std::format("field_data{}.txt", i));
     }
+    sim.exportTracked("particle_data.txt");
 }

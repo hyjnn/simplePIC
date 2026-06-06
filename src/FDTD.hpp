@@ -5,10 +5,11 @@
     we have to only consider the Ex Ey Hz polarization!!
 
     Things to improve:
+    Syncing time_step etc between simulation elements
     FieldSolever shape is not being updated when changed with getFields, this should be redesigned. (e.g. by adding a resize and setters, not allowing the setters to change shape implicitly, or not allowing resizing at all)
-    Stop mixing std::array with MDVector (I don't know why I did this)
+    Stop mixing std::arrays and std::vectors of MDVectors - I'll need to add multi-dimensional pushes to MDVector for this to make sense.
     FieldSolver stores currents as a member, meanwhile ParticleMover expects field as an argument to move.
-    Make the linalg in ParticleMover::move prettier
+    Make the linalg in ParticleMover::kickMove prettier
 */
 
 #pragma once
@@ -55,7 +56,7 @@ namespace PIC {
         floatType setStepRatio(floatType);
         const std::array<std::size_t, 2> &getShape() const;
 
-        void solve(unsigned long long);
+        void solve(unsigned long long n_steps);
 
         void exportToFile(std::string);
     };
@@ -63,20 +64,20 @@ namespace PIC {
     class ParticleMover {
         MDVector<floatType, 2> positions, velocities;
         MDVector<floatType, 1> charges, masses;
-        std::size_t particle_count;
-        floatType time_step;
+        floatType time_step = 1./(c*std::sqrt(2.));
 
     public:
-        ParticleMover() = default;
         ParticleMover(const std::size_t); // Creates object with specified particle count.
 
         MDVector<floatType, 2>& getPositions();
         MDVector<floatType, 2>& getVelocities();
         MDVector<floatType, 1>& getCharges();
         MDVector<floatType, 1>& getMasses();
+        const floatType &getTimeStep();
         const std::size_t &getParticleCount();
 
-        void move(const MDVector<floatType, 2>&); // Move particles in accordance to the supplied fields.
+        void move(); // Move particles using current velocity
+        void kickMove(const MDVector<floatType, 2>&); // Move particles and update velocities in accordance to the supplied fields.
     };
 
     class SimEngine {
@@ -90,22 +91,32 @@ namespace PIC {
         FieldSolver field_sim;
         ParticleMover particle_sim;
         floatType time = 0;
+        floatType time_step = 1./(c*std::sqrt(2.));
 
         std::array<MDVector<floatType, 2>, 6> prev_fields;
         MDVector<floatType, 2> prev_positions;
+        std::vector<std::size_t> tracked_particles; // Stores indicies of tracked particles.
+        std::vector<MDVector<floatType, 2>> tracked_positions; // Stores position history of tracked particles.
+        std::vector<MDVector<floatType, 2>> tracked_velocities; // Stores velocity history of tracked particles.
 
         std::array<floatType, 2> physToIndex(std::array<floatType, 2> point, std::size_t field_comp); // Convert point to index-like coordinates for specified field component.
+        void updateTracked();
 
         floatType gatherComponent(std::size_t field_comp, std::size_t particle_num); // Gathers specified field component onto specified index-like point.
         MDVector<floatType, 2> fieldGather(); // Calculates and returns fields at current particle locations according to the energy conserving scheme as described in Vay.
-        
         void depositCurrent(); // Updates the current distribution in field_sim.
 
     public:
-        SimEngine() = default;
-        SimEngine(std::array<std::size_t, 2>, std::size_t); // Contructs Yee simulation region with given shape and a Boris particle mover with given number of particles.
+        SimEngine(std::array<std::size_t, 2> shape, std::size_t particle_num); // Contructs Yee simulation region with given shape and a Boris particle mover with given number of particles.
 
-        void run(std::size_t);
+        FieldSolver &getFieldSim();
+        ParticleMover &getParticleSim();
+
+        void trackParticle(std::size_t); // Turns on tracking for particle with chosen index.
+        void exportTracked(std::string); // Saves tracked particle positions to file.
+
+        void move_particles(); // Should be called before calling run for the first time.
+        void run(unsigned long long n_steps); // Requires the current E field to be at time i, B and v at time i + 1/2, and x at i + 1.
     };
 
     // Applies func to all EM fields' components at all yee grid points, starting with the E field.
