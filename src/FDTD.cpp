@@ -20,24 +20,24 @@ namespace PIC {
             case 0:
                 if (j == 0 || j == shape[1] - 1) return;
                 fields[0][i, j] += step_ratio/permittivity[i, j]*(fields[5][i, j] - fields[5][i, j-1] - space_step * current[0][i, j]);
-                return;
+                break;
             case 1:
                 if (i == 0 || i == shape[0] - 1) return;
                 fields[1][i, j] += step_ratio/permittivity[i, j]*(-fields[5][i, j] + fields[5][i-1, j] - space_step * current[1][i, j]);
-                return;
+                break;
             case 2:
                 if (i == 0 || j == 0 || i == shape[0] - 1 || j == shape[1] - 1) return;
                 fields[2][i, j] += step_ratio/permittivity[i, j]*(-fields[3][i, j] + fields[3][i, j-1] + fields[4][i, j] - fields[4][i-1, j] - space_step * current[2][i, j]);
-                return;
+                break;
             case 3:
                 fields[3][i, j] += step_ratio/mu0*(-fields[2][i, j+1] + fields[2][i, j]);
-                return;
+                break;
             case 4:
                 fields[4][i, j] += step_ratio/mu0*(fields[2][i+1, j] - fields[2][i, j]);
-                return;
+                break;
             case 5:
                 fields[5][i, j] += step_ratio/mu0*(fields[0][i, j+1] - fields[0][i, j] - fields[1][i+1, j] + fields[1][i, j]);
-                return;
+                break;
         }
     }
 
@@ -73,7 +73,27 @@ namespace PIC {
         return shape;
     }
 
-    void FieldSolver::solve(unsigned long long n_steps) {
+    void FieldSolver::init_PEC() {
+        for (std::size_t i = 0; i < shape[0]; i++) { // At boundaries perpendicular to y
+            fields[0][i, 0] = 0; // Ex=0
+            fields[0][i, shape[0] - 1] = 0;
+            fields[2][i, 0] = 0; // Ez=0
+            fields[2][i, shape[0] - 1] = 0;
+            fields[4][i, 0] = 0; // Hy=0
+            fields[4][i, shape[0] - 1] = 0;
+        }
+        for (std::size_t j = 0; j < shape[0]; j++) { // At boundaries perpendicular to x
+            fields[1][0, j] = 0; // Ey=0
+            fields[1][shape[0] - 1, j] = 0;
+            fields[2][0, j] = 0; // Ez=0
+            fields[2][shape[0] - 1, j] = 0;
+            fields[3][0, j] = 0; // Hx=0
+            fields[3][shape[0] - 1, j] = 0;
+        }
+    }
+
+    void FieldSolver::solve(unsigned long long n_steps)
+    {
         for (unsigned long long step = 0; step < n_steps; step++) {
             forAllFields(&FieldSolver::compUpdatePEC);
         }
@@ -133,7 +153,7 @@ namespace PIC {
     void ParticleMover::kickMove(const MDVector<floatType, 2> &fields)
     {
         MDVector<floatType, 1> u_minus({ 2 }), u_prime({ 2 }), u_plus({ 2 });
-        floatType A; // helper variable
+        floatType A, B; // helper variable
 
         for (std::size_t i = 0; i < charges.shape[0]; i++) {
             // Update velocities
@@ -142,13 +162,13 @@ namespace PIC {
             u_minus[0] = velocities[i, 0] + A * fields[0, i];
             u_minus[1] = velocities[i, 1] + A * fields[1, i];
 
-            A *= fields[5, i];
+            B = A * fields[5, i] * mu0;
             
-            u_prime[0] = u_minus[0] + A * u_minus[1];
-            u_prime[1] = u_minus[1] - A * u_minus[0];
+            u_prime[0] = u_minus[0] + B * u_minus[1];
+            u_prime[1] = u_minus[1] - B * u_minus[0];
 
-            u_plus[0] = u_minus[0] + 2 * A * u_prime[1] / (1 + A*A);
-            u_plus[0] = u_minus[0] - 2 * A * u_prime[0] / (1 + A*A);
+            u_plus[0] = u_minus[0] + 2 * B * u_prime[1] / (1 + B*B);
+            u_plus[1] = u_minus[1] - 2 * B * u_prime[0] / (1 + B*B);
 
             velocities[i, 0] = u_plus[0] + A * fields[0, i];
             velocities[i, 1] = u_plus[1] + A * fields[1, i];
@@ -227,16 +247,16 @@ namespace PIC {
             case 0:
                 [[fallthrough]];
             case 4:
-                return (1 - j) * fields[inearest, jmin] + j * fields[inearest, jmax];
+                return (1 - j) * fields[inearest, 0] + j * fields[inearest, 1];
 
             case 1:
                 [[fallthrough]];
             case 3:
-                return (1 - i) * fields[imin, jnearest] + i * fields[imax, jnearest];
+                return (1 - i) * fields[0, jnearest] + i * fields[1, jnearest];
 
             case 2:
-                result += (1 - j) * ((1 - i) * fields[imin, jmin] + i * fields[imax, jmin]);
-                result += j * ((1 - i) * fields[imin, jmax] + i * fields[imax, jmax]);
+                result += (1 - j) * ((1 - i) * fields[0, 0] + i * fields[1, 0]);
+                result += j * ((1 - i) * fields[0, 1] + i * fields[1, 1]);
                 return result;
             
             case 5:
@@ -325,10 +345,12 @@ namespace PIC {
         }
     }
 
-    void SimEngine::move_particles() {
+    void SimEngine::initialize() {
         prev_positions = particle_sim.getPositions();
         particle_sim.move();
         updateTracked();
+
+        field_sim.init_PEC();
     }
 
     void SimEngine::run(const unsigned long long n_steps)
@@ -336,7 +358,7 @@ namespace PIC {
         for (std::size_t i = 0; i < n_steps; i++) {
             // depositCurrent();
             prev_fields = field_sim.getFields();
-            field_sim.solve(1);
+            //field_sim.solve(1);
             prev_positions = particle_sim.getPositions();
             particle_sim.kickMove(fieldGather());
             updateTracked();

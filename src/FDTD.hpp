@@ -22,9 +22,9 @@
 
 namespace PIC {
     using floatType = float; //float type used in calculations
-    inline floatType c = 299792458;
-    inline floatType eps0 = 8.8541878188141414141e-12;
-    inline floatType mu0 = 1.25663706127202020202e-6;
+    inline constexpr floatType c = 299792458;
+    inline constexpr floatType eps0 = 8.8541878188141414141e-12;
+    inline constexpr floatType mu0 = 1.25663706127202020202e-6;
 
     class FieldSolver {
         //Dimensions of the simulation region.
@@ -56,6 +56,7 @@ namespace PIC {
         floatType setStepRatio(floatType);
         const std::array<std::size_t, 2> &getShape() const;
 
+        void init_PEC(); // Sets relevant boundary components to 0.
         void solve(unsigned long long n_steps);
 
         void exportToFile(std::string);
@@ -115,7 +116,7 @@ namespace PIC {
         void trackParticle(std::size_t); // Turns on tracking for particle with chosen index.
         void exportTracked(std::string); // Saves tracked particle positions to file.
 
-        void move_particles(); // Should be called before calling run for the first time.
+        void initialize(); // Should be called before calling run for the first time.
         void run(unsigned long long n_steps); // Requires the current E field to be at time i, B and v at time i + 1/2, and x at i + 1.
     };
 
