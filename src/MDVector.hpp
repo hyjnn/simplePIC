@@ -54,6 +54,8 @@ struct MDVector {
 
     void append_rows(std::size_t) requires (M == 2); // Only for 2-dimensional vectors for now, I will implement a more general push back scheme later.
     void reserve_rows(std::size_t) requires (M == 2); // Only for 2-dimensional vectors for now, I will implement a more general push back scheme later.
+    // Erases selected row
+    void erase_row(std::size_t) requires (M <= 2); // Only for 2-dimensional vectors for now, I will implement a more general push back scheme later.
 
     MDVector<T, M>& operator+=(MDVector<T, M>) requires Addable<T>; //Elementwise addition.
     MDVector<T, M>& operator-=(MDVector<T, M>) requires Subtractable<T>; //Elementwise subtraction.
@@ -168,10 +170,20 @@ void MDVector<T, M>::reserve_rows(std::size_t n) requires (M == 2) {
 }
 
 template <typename T, std::size_t M>
-    requires(M > 0)
-MDVector<T, M> &MDVector<T, M>::operator+=(MDVector<T, M> other)
-    requires Addable<T>
-{
+requires (M > 0)
+void MDVector<T, M>::erase_row(std::size_t i) requires (M <= 2) {
+    if constexpr (M == 2) {
+        data.erase(data.begin() + shape.back()*i, data.begin() + shape.back()*(i+1));
+    }
+    else {
+        data.erase(data.begin() + i);
+    }
+    shape[0] -= 1;
+}
+
+template <typename T, std::size_t M>
+requires(M > 0)
+MDVector<T, M> &MDVector<T, M>::operator+=(MDVector<T, M> other) requires Addable<T> {
     if (shape != other.shape) {
         throw std::invalid_argument("Addition of MDVectors of unequal sizes.");
     }

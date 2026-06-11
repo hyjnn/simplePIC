@@ -121,7 +121,8 @@ namespace PIC {
 
     //-----ParticleMover definitions-----
 
-    ParticleMover::ParticleMover(const std::size_t particle_count) : positions({ particle_count, 2 }), velocities({ particle_count, 2 }), charges({ particle_count }), masses({ particle_count }) {}
+    ParticleMover::ParticleMover(const std::size_t particle_count) : positions({ particle_count, 2 }), velocities({ particle_count, 2 }),
+                                                                     charges({ particle_count }), masses({ particle_count }) {}
 
     MDVector<floatType, 2> &ParticleMover::getPositions() {
         return positions;
@@ -135,15 +136,26 @@ namespace PIC {
     MDVector<floatType, 1> &ParticleMover::getMasses() {
         return masses;
     }
-    const floatType &ParticleMover::getTimeStep() {
+    const floatType &ParticleMover::getTimeStep() const {
         return time_step;
     }
-    const std::size_t &ParticleMover::getParticleCount()
-    {
+    const std::size_t &ParticleMover::getParticleCount() const {
         return charges.shape[0];
     }
 
-    void ParticleMover::move() {
+    void ParticleMover::removeOutside(floatType xmax, floatType ymax) {
+        for (size_t i = 0; i < getParticleCount(); i++) {
+            if (positions[i, 0] < 0 || positions[i, 0] > xmax || positions[i, 1] < 0 || positions[i, 1] > ymax) {
+                positions.erase_row(i);
+                velocities.erase_row(i);
+                charges.erase_row(i);
+                masses.erase_row(i);
+            }
+        }
+    }
+
+    void ParticleMover::move()
+    {
         for (std::size_t i = 0; i < charges.shape[0]; i++) {
             positions[i, 0] += velocities[i, 0] * time_step;
             positions[i, 1] += velocities[i, 1] * time_step;
@@ -153,7 +165,7 @@ namespace PIC {
     void ParticleMover::kickMove(const MDVector<floatType, 2> &fields)
     {
         MDVector<floatType, 1> u_minus({ 2 }), u_prime({ 2 }), u_plus({ 2 });
-        floatType A, B; // helper variable
+        floatType A, B, u_natural, rel_factor; // helper variables
 
         for (std::size_t i = 0; i < charges.shape[0]; i++) {
             // Update velocities
@@ -162,7 +174,8 @@ namespace PIC {
             u_minus[0] = velocities[i, 0] + A * fields[0, i];
             u_minus[1] = velocities[i, 1] + A * fields[1, i];
 
-            B = A * fields[5, i] * mu0;
+            u_natural = u_minus[0]*u_minus[0] / c / c + u_minus[1]*u_minus[1] / c / c; 
+            B = A * fields[5, i] * mu0 / std::sqrt(1 + u_natural);
             
             u_prime[0] = u_minus[0] + B * u_minus[1];
             u_prime[1] = u_minus[1] - B * u_minus[0];
@@ -174,8 +187,9 @@ namespace PIC {
             velocities[i, 1] = u_plus[1] + A * fields[1, i];
 
             // Update positions
-            positions[i, 0] += velocities[i, 0] * time_step;
-            positions[i, 1] += velocities[i, 1] * time_step;
+            rel_factor = std::sqrt(1 + std::pow(velocities[i, 0] / c, 2) + std::pow(velocities[i, 1] / c, 2));
+            positions[i, 0] += velocities[i, 0] * time_step / rel_factor;
+            positions[i, 1] += velocities[i, 1] * time_step / rel_factor;
         }
     }
 
@@ -199,15 +213,15 @@ namespace PIC {
 
     void SimEngine::updateTracked() {
         std::size_t last_row;
-        for (std::size_t i = 0; i < tracked_particles.size(); i++) {
+        for (std::size_t i = 0; i < particle_sim.getCharges().shape[0]; i++) {
             last_row = tracked_positions[i].shape[0];
             tracked_positions[i].append_rows(1);
             tracked_velocities[i].append_rows(1);
 
-            tracked_positions[i][last_row, 0] = particle_sim.getPositions()[tracked_particles[i], 0];
-            tracked_positions[i][last_row, 1] = particle_sim.getPositions()[tracked_particles[i], 1];
-            tracked_velocities[i][last_row, 0] = particle_sim.getVelocities()[tracked_particles[i], 0];
-            tracked_velocities[i][last_row, 1] = particle_sim.getVelocities()[tracked_particles[i], 1];
+            tracked_positions[i][last_row, 0] = particle_sim.getPositions()[i, 0];
+            tracked_positions[i][last_row, 1] = particle_sim.getPositions()[i, 1];
+            tracked_velocities[i][last_row, 0] = particle_sim.getVelocities()[i, 0];
+            tracked_velocities[i][last_row, 1] = particle_sim.getVelocities()[i, 1];
         }
     }
 
@@ -289,28 +303,32 @@ namespace PIC {
         currents.fill(MDVector<floatType, 2>(field_sim.getShape())); // clear previous currents
 
         for (std::size_t particle_num = 0; particle_num < particle_sim.getParticleCount(); particle_num++) {
-            for (std::size_t field_comp = 0; field_comp < 3; field_comp++) {
+            for (std::size_t field_comp = 0; field_comp < 2; field_comp++) {
                 floatType x = .5 * (positions[particle_num, 0] + prev_positions[particle_num, 0]);
                 floatType y = .5 * (positions[particle_num, 1] + prev_positions[particle_num, 1]);
                 auto [i, j] = physToIndex({ x, y }, field_comp);
 
-                std::size_t imin = std::floor(i), imax = std::ceil(i), jmin = std::floor(j), jmax = std::ceil(j);
+                std::size_t imin = std::floor(i), imax = imin + 1, jmin = std::floor(j), jmax = jmin + 1;
 
-                if (i > 0) {
-                    currents[field_comp][imin, jmax] = (1 - i) * j * charges[particle_num] * velocities[particle_num, field_comp] / step / step / step;
+                floatType test = charges[particle_num] * velocities[particle_num, field_comp] / step / step;
+
+                if (i >= 0) {
+                    currents[field_comp][imin, jmax] += (1 - i) * j * test;
                 }
-                if (j > 0) {
-                    currents[field_comp][imax, jmin] = i * (1 - j) * charges[particle_num] * velocities[particle_num, field_comp] / step / step / step;
+                if (j >= 0) {
+                    currents[field_comp][imax, jmin] += i * (1 - j) * charges[particle_num] * velocities[particle_num, field_comp] / step / step;
                 }
-                if (i > 0 && j > 0) {
-                    currents[field_comp][imin, jmin] = (1 - i) * (1 - j) * charges[particle_num] * velocities[particle_num, field_comp] / step / step / step;
+                if (i >= 0 && j >= 0) {
+                    currents[field_comp][imin, jmin] += (1 - i) * (1 - j) * charges[particle_num] * velocities[particle_num, field_comp] / step / step;
                 }
-                currents[field_comp][imax, jmax] = i * j * charges[particle_num] * velocities[particle_num, field_comp] / step / step / step;
+                currents[field_comp][imax, jmax] += i * j * charges[particle_num] * velocities[particle_num, field_comp] / step / step;
             }
         }
     }
 
-    SimEngine::SimEngine(const std::array<std::size_t, 2> shape, const std::size_t particle_num) : field_sim(shape), particle_sim(particle_num), prev_positions({ particle_num, 2 }) {
+    SimEngine::SimEngine(const std::array<std::size_t, 2> shape, const std::size_t particle_num) : field_sim(shape), particle_sim(particle_num), prev_positions({ particle_num, 2 }),
+                                                                                                   tracked_positions(particle_num, MDVector<floatType, 2>({ particle_num, 2 })),
+                                                                                                   tracked_velocities(particle_num, MDVector<floatType, 2>({ particle_num, 2 })) {
         prev_fields.fill(MDVector<floatType, 2>(shape));
     }
 
@@ -321,22 +339,11 @@ namespace PIC {
         return particle_sim;
     }
 
-    void SimEngine::trackParticle(std::size_t i) {
-        tracked_particles.push_back(i);
-        tracked_positions.push_back(MDVector<floatType, 2>({ 1, 2 }));
-        tracked_velocities.push_back(MDVector<floatType, 2>({ 1, 2 }));
-
-        tracked_positions[0][0, 0] = particle_sim.getPositions()[i, 0];
-        tracked_positions[0][0, 1] = particle_sim.getPositions()[i, 1];
-        tracked_velocities[0][0, 0] = particle_sim.getVelocities()[i, 0];
-        tracked_velocities[0][0, 1] = particle_sim.getVelocities()[i, 1];
-    }
-
     void SimEngine::exportTracked(std::string filename) {
         std::ofstream outfile(filename, std::ios_base::trunc);
-        outfile << std::format("time step: {}, particle count: {}\n", particle_sim.getTimeStep(), tracked_particles.size());
+        outfile << std::format("time step: {}, particle count: {}\n", particle_sim.getTimeStep(), particle_sim.getParticleCount());
 
-        for (std::size_t particle = 0; particle < tracked_particles.size(); particle++) {
+        for (std::size_t particle = 0; particle < particle_sim.getParticleCount(); particle++) {
             outfile << std::format("particle {}:\n", particle + 1);
             for (std::size_t i = 0; i < tracked_positions[particle].shape[0]; i++) {
                 outfile << std::format("{} {} {} {}\n", tracked_positions[particle][i, 0], tracked_positions[particle][i, 1],
@@ -356,11 +363,12 @@ namespace PIC {
     void SimEngine::run(const unsigned long long n_steps)
     {
         for (std::size_t i = 0; i < n_steps; i++) {
-            // depositCurrent();
+            depositCurrent();
             prev_fields = field_sim.getFields();
-            //field_sim.solve(1);
+            field_sim.solve(1);
             prev_positions = particle_sim.getPositions();
             particle_sim.kickMove(fieldGather());
+            particle_sim.removeOutside(field_sim.getSpaceStep() * field_sim.getShape()[0], field_sim.getSpaceStep() * field_sim.getShape()[1]);
             updateTracked();
             time += time_step;
         }

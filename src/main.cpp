@@ -35,13 +35,12 @@ int main() {
     auto &Ey = field_sim.getFields()[1].data;
     auto &Hz = field_sim.getFields()[5].data;
     std::ranges::fill(Ey, -40000);
-    std::ranges::fill(Hz, 100);
+    std::ranges::fill(Hz, 10000);
 
     positions[0, 0] = 200 * field_sim.getSpaceStep();
     positions[0, 1] = 200 * field_sim.getSpaceStep();
-    particle_sim.getMasses()[0] = 1;
-    particle_sim.getCharges()[0] = 1e10;
-    sim.trackParticle(0);
+    particle_sim.getMasses()[0] = 9.109e-31;
+    particle_sim.getCharges()[0] = 1.602e-19;
 
     sim.initialize();
 

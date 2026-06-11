@@ -74,9 +74,10 @@ namespace PIC {
         MDVector<floatType, 2>& getVelocities();
         MDVector<floatType, 1>& getCharges();
         MDVector<floatType, 1>& getMasses();
-        const floatType &getTimeStep();
-        const std::size_t &getParticleCount();
+        const floatType &getTimeStep() const;
+        const std::size_t &getParticleCount() const;
 
+        void removeOutside(floatType xmax, floatType ymax); // Removes particles that are outside of the sim region (so below 0 or xmax/ymax in either component)
         void move(); // Move particles using current velocity
         void kickMove(const MDVector<floatType, 2>&); // Move particles and update velocities in accordance to the supplied fields.
     };
@@ -96,7 +97,6 @@ namespace PIC {
 
         std::array<MDVector<floatType, 2>, 6> prev_fields;
         MDVector<floatType, 2> prev_positions;
-        std::vector<std::size_t> tracked_particles; // Stores indicies of tracked particles.
         std::vector<MDVector<floatType, 2>> tracked_positions; // Stores position history of tracked particles.
         std::vector<MDVector<floatType, 2>> tracked_velocities; // Stores velocity history of tracked particles.
 
