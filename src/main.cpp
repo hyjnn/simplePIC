@@ -11,7 +11,7 @@ void fundamentalMode(PIC::FieldSolver &sim) { // Shape is hardcoded to 400 cause
     auto step = sim.getSpaceStep();
     auto time_step = step * sim.getStepRatio();
     auto length = step * (400 - 1);
-    auto frequency = 2 * std::numbers::pi * PIC::c / (2 * length);
+    auto frequency = std::numbers::pi * PIC::c / (length);
     auto& fields = sim.getFields();
 
     PIC::floatType phase, Ey0, Hz0;
@@ -27,20 +27,20 @@ void fundamentalMode(PIC::FieldSolver &sim) { // Shape is hardcoded to 400 cause
 }
 
 int main() {
-    PIC::SimEngine sim({ 400, 400 }, 1 );
+    PIC::SimEngine sim({ 400, 400 }, 2, 1e-4);
     auto &field_sim = sim.getFieldSim();
     auto &particle_sim = sim.getParticleSim();
     auto &positions = particle_sim.getPositions();
-    // fundamentalMode(field_sim);
-    auto &Ey = field_sim.getFields()[1].data;
-    auto &Hz = field_sim.getFields()[5].data;
-    std::ranges::fill(Ey, -40000);
-    std::ranges::fill(Hz, 10000);
+    fundamentalMode(field_sim);
 
     positions[0, 0] = 200 * field_sim.getSpaceStep();
     positions[0, 1] = 200 * field_sim.getSpaceStep();
+    positions[1, 0] = 201 * field_sim.getSpaceStep();
+    positions[1, 1] = 201 * field_sim.getSpaceStep();
     particle_sim.getMasses()[0] = 9.109e-31;
     particle_sim.getCharges()[0] = 1.602e-19;
+    particle_sim.getMasses()[1] = 9.109e-31;
+    particle_sim.getCharges()[1] = 1.602e-19;
 
     sim.initialize();
 

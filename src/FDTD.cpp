@@ -55,17 +55,17 @@ namespace PIC {
     {
         return permittivity;
     }
-    floatType FieldSolver::getSpaceStep() {
+    const floatType &FieldSolver::getSpaceStep() const{
         return space_step;
     }
-    floatType FieldSolver::setSpaceStep(const floatType new_value) {
+    const floatType &FieldSolver::setSpaceStep(const floatType new_value) {
         space_step = new_value;
         return space_step;
     }
-    floatType FieldSolver::getStepRatio() {
+    const floatType &FieldSolver::getStepRatio() const{
         return step_ratio;
     }
-    floatType FieldSolver::setStepRatio(const floatType new_value) {
+    const floatType &FieldSolver::setStepRatio(const floatType new_value) {
         step_ratio = new_value;
         return step_ratio;
     }
@@ -139,6 +139,11 @@ namespace PIC {
     const floatType &ParticleMover::getTimeStep() const {
         return time_step;
     }
+    const floatType &ParticleMover::setTimeStep(const floatType val) {
+        time_step = val;
+        return time_step;
+    }
+
     const std::size_t &ParticleMover::getParticleCount() const {
         return charges.shape[0];
     }
@@ -165,7 +170,7 @@ namespace PIC {
     void ParticleMover::kickMove(const MDVector<floatType, 2> &fields)
     {
         MDVector<floatType, 1> u_minus({ 2 }), u_prime({ 2 }), u_plus({ 2 });
-        floatType A, B, u_natural, rel_factor; // helper variables
+        floatType A, B, u_natural; // helper variables
 
         for (std::size_t i = 0; i < charges.shape[0]; i++) {
             // Update velocities
@@ -187,9 +192,8 @@ namespace PIC {
             velocities[i, 1] = u_plus[1] + A * fields[1, i];
 
             // Update positions
-            rel_factor = std::sqrt(1 + std::pow(velocities[i, 0] / c, 2) + std::pow(velocities[i, 1] / c, 2));
-            positions[i, 0] += velocities[i, 0] * time_step / rel_factor;
-            positions[i, 1] += velocities[i, 1] * time_step / rel_factor;
+            positions[i, 0] += time_step / std::sqrt(1 / (c*c) + 1 / (velocities[i, 0] * velocities[i, 0]));
+            positions[i, 1] += time_step / std::sqrt(1 / (c*c) + 1 / (velocities[i, 1] * velocities[i, 1]));
         }
     }
 
@@ -205,10 +209,16 @@ namespace PIC {
             { .5, .5 },
         };
 
-        floatType i = point[0] / field_sim.getSpaceStep() - offsets[field_comp].x;
-        floatType j = point[1] / field_sim.getSpaceStep() - offsets[field_comp].y;
+        floatType i = point[0] / space_step - offsets[field_comp].x;
+        floatType j = point[1] / space_step - offsets[field_comp].y;
 
         return { i, j };
+    }
+
+    void SimEngine::syncSteps() {
+        field_sim.setSpaceStep(space_step);
+        field_sim.setStepRatio(time_step / space_step);
+        particle_sim.setTimeStep(time_step);
     }
 
     void SimEngine::updateTracked() {
@@ -232,7 +242,7 @@ namespace PIC {
 
         auto [i, j] = physToIndex({ x, y }, field_comp);
 
-        std::size_t imin = std::floor(i), imax = std::ceil(i), jmin = std::floor(j), jmax = std::ceil(j);
+        std::size_t imin = std::floor(i), imax = imin + 1, jmin = std::floor(j), jmax = jmin + 1;
         if (i < 0) imin = 0; // It's possible for these to be negative for some of the components.
         if (j < 0) jmin = 0; // The calculation itself doesn't need them in those cases, but we have to prevent a segfault nonetheless.
         // They can exceed the max physical boundary as well, but in this case the padding due to the staggering of the Yee grid saves us.
@@ -331,6 +341,16 @@ namespace PIC {
                                                                                                    tracked_velocities(particle_num, MDVector<floatType, 2>({ particle_num, 2 })) {
         prev_fields.fill(MDVector<floatType, 2>(shape));
     }
+    SimEngine::SimEngine(std::array<std::size_t, 2> shape, std::size_t particle_num, floatType space_step) : SimEngine(shape, particle_num) {
+        this->space_step = space_step;
+        this->time_step = space_step / (c*std::sqrt(2));
+        syncSteps();
+    }
+    SimEngine::SimEngine(std::array<std::size_t, 2> shape, std::size_t particle_num, floatType space_step, floatType time_step) : SimEngine(shape, particle_num) {
+        this->space_step = space_step;
+        this->time_step = time_step;
+        syncSteps();
+    }
 
     FieldSolver &SimEngine::getFieldSim() {
         return field_sim;
@@ -347,7 +367,8 @@ namespace PIC {
             outfile << std::format("particle {}:\n", particle + 1);
             for (std::size_t i = 0; i < tracked_positions[particle].shape[0]; i++) {
                 outfile << std::format("{} {} {} {}\n", tracked_positions[particle][i, 0], tracked_positions[particle][i, 1],
-                                                        tracked_velocities[particle][i, 0], tracked_velocities[particle][i, 1]);
+                                                        1/std::sqrt(1/(c*c) + 1/(tracked_velocities[particle][i, 0]*tracked_velocities[particle][i, 0])),
+                                                        1/std::sqrt(1/(c*c) + 1/(tracked_velocities[particle][i, 1]*tracked_velocities[particle][i, 1])));
             }
         }
     }
@@ -368,7 +389,7 @@ namespace PIC {
             field_sim.solve(1);
             prev_positions = particle_sim.getPositions();
             particle_sim.kickMove(fieldGather());
-            particle_sim.removeOutside(field_sim.getSpaceStep() * field_sim.getShape()[0], field_sim.getSpaceStep() * field_sim.getShape()[1]);
+            particle_sim.removeOutside(space_step * (field_sim.getShape()[0] - 1), space_step * (field_sim.getShape()[1] - 1));
             updateTracked();
             time += time_step;
         }

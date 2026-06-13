@@ -50,10 +50,10 @@ namespace PIC {
         std::array<MDVector<floatType, 2>, 6> &getFields(); // Currently, changing the shape of fields with this WILL BREAK THE PROGRAM. TO BE CORRECTED!!!!
         std::array<MDVector<floatType, 2>, 3> &getCurrent();
         MDVector<floatType, 2> &getPermittivity();
-        floatType getSpaceStep();
-        floatType setSpaceStep(floatType);
-        floatType getStepRatio();
-        floatType setStepRatio(floatType);
+        const floatType &getSpaceStep() const;
+        const floatType &setSpaceStep(floatType);
+        const floatType &getStepRatio() const;
+        const floatType &setStepRatio(floatType);
         const std::array<std::size_t, 2> &getShape() const;
 
         void init_PEC(); // Sets relevant boundary components to 0.
@@ -75,6 +75,8 @@ namespace PIC {
         MDVector<floatType, 1>& getCharges();
         MDVector<floatType, 1>& getMasses();
         const floatType &getTimeStep() const;
+        const floatType &setTimeStep(floatType);
+
         const std::size_t &getParticleCount() const;
 
         void removeOutside(floatType xmax, floatType ymax); // Removes particles that are outside of the sim region (so below 0 or xmax/ymax in either component)
@@ -93,7 +95,7 @@ namespace PIC {
         FieldSolver field_sim;
         ParticleMover particle_sim;
         floatType time = 0;
-        floatType time_step = 1./(c*std::sqrt(2.));
+        floatType time_step = 1./(c*std::sqrt(2.)), space_step = 1;
 
         std::array<MDVector<floatType, 2>, 6> prev_fields;
         MDVector<floatType, 2> prev_positions;
@@ -101,6 +103,7 @@ namespace PIC {
         std::vector<MDVector<floatType, 2>> tracked_velocities; // Stores velocity history of tracked particles.
 
         std::array<floatType, 2> physToIndex(std::array<floatType, 2> point, std::size_t field_comp); // Convert point to index-like coordinates for specified field component.
+        void syncSteps(); // Set the steps in field_sim and particle_sim to the steps in this object.
         void updateTracked();
 
         floatType gatherComponent(std::size_t field_comp, std::size_t particle_num); // Gathers specified field component onto specified index-like point.
@@ -108,12 +111,14 @@ namespace PIC {
         void depositCurrent(); // Updates the current distribution in field_sim.
 
     public:
-        SimEngine(std::array<std::size_t, 2> shape, std::size_t particle_num); // Contructs Yee simulation region with given shape and a Boris particle mover with given number of particles.
+        SimEngine(std::array<std::size_t, 2> shape, std::size_t particle_num); // Contructs simulation region with given shape and number of particles.
+        SimEngine(std::array<std::size_t, 2> shape, std::size_t particle_num, floatType space_step); // Contructs simulation region with given shape, number of particles and space step, satysfying Courant's condition.
+        SimEngine(std::array<std::size_t, 2> shape, std::size_t particle_num, floatType space_step, floatType time_step); // Contructs simulation region with given shape, number of particles, space step and time step.
 
         FieldSolver &getFieldSim();
         ParticleMover &getParticleSim();
 
-        void trackParticle(std::size_t); // Turns on tracking for particle with chosen index.
+        //void trackParticle(std::size_t); // Turns on tracking for particle with chosen index.
         void exportTracked(std::string); // Saves tracked particle positions to file.
 
         void initialize(); // Should be called before calling run for the first time.
